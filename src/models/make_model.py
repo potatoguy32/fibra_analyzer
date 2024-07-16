@@ -82,6 +82,7 @@ class MyModelStruct:
             past_covariates=self.month_series,
             val_series=self.val_scaled,
             val_past_covariates=self.month_series,
+            verbose=False
         )
 
         self.model = TCNModel.load_from_checkpoint(model_name=self.model_name, best=True)
@@ -102,7 +103,7 @@ class MyModelStruct:
         return
     
     def run_prediction(self, window=14, **kwargs):
-        self.prediction = self.model.predict(window, **kwargs)
+        self.prediction = self.model.predict(window, verbose=False)
         self.reversed_prediction = self.scaler.inverse_transform(self.prediction)
         return
     
@@ -151,7 +152,7 @@ class MyModelStruct:
                 model_name=self.model_name,
                 save_checkpoints=True,
                 force_reset=True,
-                **generate_torch_kwargs()
+                # **generate_torch_kwargs()
             )
             
         self.model = model

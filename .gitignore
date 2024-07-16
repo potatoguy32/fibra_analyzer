@@ -89,3 +89,5 @@ target/
 .mypy_cache/
 notebooks/dart_logs/
 notebooks/dart_logs/*
+notebooks/darts_logs/
+notebooks/darts_logs/*

@@ -8,10 +8,12 @@ import pathlib
 import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
+import numpy as np
 
 # Projct (local) modules
 from src.data import CRUD
 from src.data import text_handlers
+from src.models.make_prediction import get_prediction
 
 from pydantic import ValidationError
 
@@ -124,4 +126,58 @@ def update_dividend_data():
         CRUD.load_dividends(conn, filtered_entries)
 
     return
+
+def get_market_dataset(ticker, start_date, end_date):
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cur = conn.cursor()
         
+        market_data_query = "SELECT * FROM market_data order by ticker, date;".format(start_date, end_date)
+        market_data_res = cur.execute(market_data_query)
+        market_data_entries = market_data_res.fetchall()
+    
+    full_market_df = pd.DataFrame(market_data_entries, columns=['ticker', 'date', 'open', 'high', 'low', 'close', 'volume', 'dividends', 'stock_splits'])
+    full_market_df['date'] = pd.to_datetime(full_market_df['date'])
+    full_market_df['avg_price'] = full_market_df[['open', 'high', 'low', 'close']].mean(axis=1)
+    ticker_df = full_market_df.query("ticker == @ticker and date >= @start_date & date <= @end_date")
+    sample = ticker_df.filter(['date', 'ticker', 'avg_price', 'dividends'])
+    return sample
+
+def get_dividends_dataset(ticker_name):
+    future_dividends_query = "SELECT * FROM dividends;"
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cur = conn.cursor()
+        future_dividends_res = cur.execute(future_dividends_query)
+        future_dividends_entries = future_dividends_res.fetchall()
+
+    future_dividends_df = pd.DataFrame(future_dividends_entries, columns=['ticker', 'announcement_date', 'dividend_date', 'dividend_amount'])
+    future_dividends_df['announcement_date'] = pd.to_datetime(future_dividends_df['announcement_date'])
+    future_dividends_df['dividend_date'] = pd.to_datetime(future_dividends_df['dividend_date'])
+    ticker_dividends_df = future_dividends_df.query("ticker == @ticker_name")
+    return ticker_dividends_df
+
+def get_ticker_dataset(ticker_name: str, start_date: str, end_date: str, prediction_window: int):
+    # Create and filter market data dataframe
+    sample = get_market_dataset(ticker_name, start_date, end_date)
+
+    # Create and filter dividends data dataframe
+    ticker_dividends_df = get_dividends_dataset(ticker_name)
+
+    # Make prediction with ML model
+    prediction_df = get_prediction(sample, prediction_window)
+
+    # Join data
+    consolidated_price_df = sample.merge(prediction_df, how='outer')
+    consolidated_price_df['ticker'] = consolidated_price_df['ticker'].ffill()
+    consolidated_price_df['source'] = consolidated_price_df['source'].bfill()
+    consolidated_price_df['dividends'] = consolidated_price_df['dividends'].fillna(0)
+    latest_actual_date = consolidated_price_df.query("source == 'actual'").date.max().date()
+    future_dividends_df = (ticker_dividends_df
+                           .filter(['ticker', 'dividend_date', 'dividend_amount'])
+                           .rename(columns={'dividend_date': 'date'})
+                           .query("date > @latest_actual_date"))
+
+    consolidated_df = consolidated_price_df.merge(future_dividends_df, how='left')
+    consolidated_df['dividends'] = np.where(consolidated_df.dividend_amount.notnull(), consolidated_df.dividend_amount, consolidated_df.dividends)
+    consolidated_df.drop(columns=['dividend_amount'], inplace=True)
+
+    return consolidated_df

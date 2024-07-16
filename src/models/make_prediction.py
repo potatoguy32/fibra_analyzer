@@ -22,7 +22,7 @@ DATABASE_PATH = os.environ['DATABASE_PATH']
 MODEL_STORE_PATH = pathlib.Path(os.environ['MODEL_STORE'])
 
 
-def get_prediction(dataset):
+def get_prediction(dataset, window):
     sample = dataset.copy()
     ticker_name = sample.ticker.unique()[0].split('.')[0]
     struct = MyModelStruct(ticker=ticker_name, model_type='price', dataset=sample, scaler=Scaler())
@@ -30,7 +30,7 @@ def get_prediction(dataset):
     struct.set_train_test_data(train_size=0.85)
     struct.train_model()
     struct.run_backtest()
-    struct.run_prediction(window=20, series=struct.val_scaled)
+    struct.run_prediction(window=window, series=struct.val_scaled)
     struct.append_prediction()
 
     prediction_df = struct.get_aggregated_dataset()
