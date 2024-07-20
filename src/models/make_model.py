@@ -3,22 +3,28 @@ import os
 import pathlib
 import pickle
 
-from dotenv import load_dotenv
+# Local stuff
+from src.data import make_dataset
 
-import numpy as np
+# Data wrangling and optimizatin stuff
 import pandas as pd
-
-from skops.io import load, dump
+import numpy as np
+from scipy.optimize import minimize
 
 # Neural network stuff
 from darts import TimeSeries
 from darts.utils.callbacks import TFMProgressBar
 from darts.models import TCNModel
-from darts.dataprocessing.transformers import Scaler
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
-from darts.metrics import mape, r2_score, rmse, smape
 from darts.utils.missing_values import fill_missing_values
 from torch.nn import MSELoss
+
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+MODEL_STORE_PATH = pathlib.Path(os.environ['MODEL_STORE'])
+
 
 def generate_torch_kwargs():
     # run torch models on CPU, and disable progress bars for all model stages except training.
@@ -29,9 +35,6 @@ def generate_torch_kwargs():
         }
     }
 
-# Load environment variables
-load_dotenv()
-MODEL_STORE_PATH = pathlib.Path(os.environ['MODEL_STORE'])
 
 class MyModelStruct:
     def __init__(self, ticker, model_type='price', scaler=None, dataset=None):
@@ -73,10 +76,9 @@ class MyModelStruct:
         self.val = val
         self.val_scaled = val_scaled
         self.month_series = datetime_attribute_timeseries(self.ts_dataset, attribute="month", one_hot=True)
-        
         return
     
-    def train_model(self, **kwargs):        
+    def train_model(self, **kwargs):       
         self.model.fit(
             series=self.train_scaled,
             past_covariates=self.month_series,
@@ -103,7 +105,7 @@ class MyModelStruct:
         return
     
     def run_prediction(self, window=14, **kwargs):
-        self.prediction = self.model.predict(window, verbose=False)
+        self.prediction = self.model.predict(window, verbose=False, **kwargs)
         self.reversed_prediction = self.scaler.inverse_transform(self.prediction)
         return
     
@@ -200,4 +202,3 @@ class MyModelStruct:
         
         self.model.save(str(self.model_path))
         return
-

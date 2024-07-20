@@ -47,6 +47,7 @@ def update_market_data():
             continue
     
     appended_df = pd.concat(df_list, ignore_index=True)
+    appended_df = appended_df.get(['ticker', 'Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'Dividends', 'Stock Splits',])
     print(f"Loading {appended_df.shape[0]} entries into database...")
     with sqlite3.connect(DATABASE_PATH) as conn:
         CRUD.load_market_data(conn, appended_df.itertuples(index=False, name=None))
@@ -64,6 +65,16 @@ def add_new_tickers(tickers, start_date, end_date):
     
     print(f"Succesfully loaded new data in database, returning dataset for validations...")
     return new_processed_df
+
+def delete_tickers(tickers):
+    if not isinstance(tickers, list):
+        tickers = [tickers, ]
+
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        CRUD.delete_tickers(connection=conn, tickers=tickers)
+
+    print("Succesfully deleted tickers from DB...")
+    return
 
 def get_market_data_from_yf(tickers, start_date, end_date):
     tickers = list(tickers) if isinstance(tickers, list) else [tickers, ]
@@ -93,25 +104,24 @@ def extract_dividend_data(handler, file_path):
     dividend_dict = handler(file_path).get_dividend_data()
     return dividend_dict
 
-def get_aggregared_dividend_data():
-    asset_map = {
-        'FMTY14': text_handlers.TextHandlerFMTY14,
-        'FIBRAPL14': text_handlers.TextHandlerFIBRAPL14,
-        'FNOVA17': text_handlers.TextHandlerFNOVA17,
-        'FIBRAMQ12': text_handlers.TextHandlerFIBRAMQ12,
-        'FSHOP13': text_handlers.TextHandlerFSHOP13,
-        }
+def get_aggregared_dividend_data(asset_map: dict) -> list[pd.DataFrame]:
+    asset_map = dict(asset_map)
     dividend_data = []
     for folder, handler in asset_map.items():
+        print("=================== ", handler.__name__, "=================== ")
         for file in os.listdir(pathlib.Path(REPORTS_STORE_PATH).joinpath(folder + '/')):
-            curr_file_path = pathlib.Path(REPORTS_STORE_PATH).joinpath(folder).joinpath(file)
-            current_data = extract_dividend_data(handler, curr_file_path)
-            dividend_data.append(current_data)
+            try:
+                curr_file_path = pathlib.Path(REPORTS_STORE_PATH).joinpath(folder).joinpath(file)
+                current_data = extract_dividend_data(handler, curr_file_path)
+                dividend_data.append(current_data)
+                print(current_data)
+            except:
+                pass
 
     return dividend_data
 
-def update_dividend_data():
-    extracted_data = get_aggregared_dividend_data()
+def update_dividend_data(asset_map: dict) -> None:
+    extracted_data = get_aggregared_dividend_data(asset_map)
     filtered_entries = []
     for dividend_data_dict in extracted_data:
         try:
@@ -131,7 +141,7 @@ def get_market_dataset(ticker, start_date, end_date):
     with sqlite3.connect(DATABASE_PATH) as conn:
         cur = conn.cursor()
         
-        market_data_query = "SELECT * FROM market_data order by ticker, date;".format(start_date, end_date)
+        market_data_query = "SELECT * FROM market_data order by ticker, date;"
         market_data_res = cur.execute(market_data_query)
         market_data_entries = market_data_res.fetchall()
     
@@ -155,7 +165,7 @@ def get_dividends_dataset(ticker_name):
     ticker_dividends_df = future_dividends_df.query("ticker == @ticker_name")
     return ticker_dividends_df
 
-def get_ticker_dataset(ticker_name: str, start_date: str, end_date: str, prediction_window: int):
+def get_ticker_dataset(ticker_name: str, start_date: str, end_date: str, prediction_window: int = 10):
     # Create and filter market data dataframe
     sample = get_market_dataset(ticker_name, start_date, end_date)
 
@@ -179,5 +189,6 @@ def get_ticker_dataset(ticker_name: str, start_date: str, end_date: str, predict
     consolidated_df = consolidated_price_df.merge(future_dividends_df, how='left')
     consolidated_df['dividends'] = np.where(consolidated_df.dividend_amount.notnull(), consolidated_df.dividend_amount, consolidated_df.dividends)
     consolidated_df.drop(columns=['dividend_amount'], inplace=True)
+    consolidated_df = consolidated_df.sort_values(by=['date', 'source'], ascending=[True, False]).drop_duplicates(subset=['date'], keep='last')
 
     return consolidated_df

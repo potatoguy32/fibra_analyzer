@@ -87,7 +87,8 @@ class TextHandlerFIBRAPL14(TextHandler):
         self.dates_regex = re.compile('((January|February|March|April|May|June|July|August|September|October|November|December)\s+([1-9]|[12][0-9]|3[01])\s*,\s+(\d{4}))', re.I)
         self.dividends_table = read_pdf(self.file_path, pages='all')[0]
         self.exchange_rate_path = pathlib.Path(UTILITY_FILES_PATH).joinpath('exchange_rate.csv')
-        self.exchange_rates_df = pd.read_csv(self.exchange_rate_path, header=None, names=['date', 'rate'], parse_dates=[0, ], date_format='%d/%m/%Y')
+        self.exchange_rates_df = pd.read_csv(self.exchange_rate_path, header=None, names=['date', 'rate'])
+        self.exchange_rates_df['date'] = pd.to_datetime(self.exchange_rates_df['date'], format='%d/%m/%Y')
         return
     
     def get_dividend_data(self):
@@ -103,7 +104,8 @@ class TextHandlerFIBRAPL14(TextHandler):
                 self.matching_dict['dividend_date'] = datetime.datetime.strptime(dividend_date, '%B %d, %Y').strftime('%Y-%m-%d')
         
         self.dividend_amount = self.dividends_table.iloc[:, 1].apply(lambda x: x.split('$')[-1]).astype(float).sum()
-        self.dividend_exchange_rate = self.exchange_rates_df.query("date == @self.matching_dict['dividend_date']").rate.values[0]
+        dividend_date_df = str(self.matching_dict['dividend_date'])
+        self.dividend_exchange_rate = self.exchange_rates_df.query("date == @dividend_date_df").rate.values[0]
         self.matching_dict['dividend_amount'] = str(round(self.dividend_amount * self.dividend_exchange_rate, 4))
         return dict(self.matching_dict)
     
@@ -178,6 +180,28 @@ class TextHandlerFSHOP13(TextHandler):
         self.matching_dict.update({
             'announcement_date': dateparser.parse(announcement_date, languages=['es']).strftime('%Y-%m-%d'),
             'dividend_date': dateparser.parse(dividend_date, languages=['es']).strftime('%Y-%m-%d'),
+            'dividend_amount': dividend_amount
+        })
+
+        return dict(self.matching_dict)
+
+
+class TextHandlerDANHOS13(TextHandler):
+    def __init__(self, path) -> None:
+        super().__init__(path)
+        self.matching_dict.update({'ticker': 'DANHOS13.MX'})
+        self.dividend_regex = re.compile('\$(\d\.\d+ pesos)', re.I)
+        self.payment_date_regex = re.compile('(el (\d{1,2})( de )(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)( de )(\d{4}))', re.I)
+        self.payment_type_regex = re.compile('(reembolso de capital|resultado fiscal)' , re.I)
+        return
+    
+    def get_dividend_data(self):
+        page_text = self.reader.pages[0].extract_text().replace('\n', ' ').replace('  ', ' ')
+        dividend_amount = self.dividend_regex.findall(page_text)[0].split(' ')[0]
+        dividend_date = dateparser.parse(self.payment_date_regex.findall(page_text)[0][0].replace('el', '').strip(), languages=['es']).strftime('%Y-%m-%d')
+        self.matching_dict.update({
+            'announcement_date': None,
+            'dividend_date': dividend_date,
             'dividend_amount': dividend_amount
         })
 
