@@ -1,0 +1,1 @@
+{"days_in": 21, "days_out": 19, "kernel_size": 9, "num_filters": 8, "weight_norm": false, "likelihood": null, "dilation_base": 4, "dropout": 0.06337073775508816, "lr": 0.03131157434064148}
